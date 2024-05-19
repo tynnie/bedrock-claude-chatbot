@@ -27,6 +27,7 @@ import pytesseract
 from PIL import Image
 import PyPDF2
 import chardet
+import random
 from datetime import datetime    
 from docx import Document as DocxDocument
 from docx.oxml.text.paragraph import CT_P
@@ -215,7 +216,7 @@ def handle_doc_upload_or_s3(file):
     else:            
         obj=get_s3_obj_from_bucket_(file)
         content = obj['Body'].read()
-        doc_buffer = io.BytesIO(doc_content)
+        doc_buffer = io.BytesIO(content)
         content = textract.process(doc_buffer).decode()
     # Implement any other file extension logic 
     return content
@@ -382,7 +383,7 @@ def exract_pdf_text_aws(file):
             return text
         else:
             
-            extractor = Textractor(region_name="us-east-1")
+            extractor = Textractor(region_name="us-west-2")
             # Asynchronous call, you will experience some wait time. Try caching results for better experience
             if "pdf" in ext:
                 st.write("Asynchronous call, you may experience some wait time.")
@@ -678,7 +679,7 @@ def bedrock_claude_(params,chat_history,system_message, prompt,model_id,image_pa
     # print(system_message)
     prompt = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1500,
+        "max_tokens": 2500,
         "temperature": 0.5,
         "system":system_message,
         "messages": chat_history
@@ -776,13 +777,9 @@ def query_llm(params, handler):
 
     if not isinstance(params['upload_doc'], list):
         raise TypeError("documents must be in a list format")        
-    # Check if Claude3 model is used and handle images with the CLAUDE3 Model
-    claude3=False
-    model='anthropic.'+params['model']
-    if "sonnet" in model or "haiku" in model:
-        model+="-20240229-v1:0" if "sonnet" in model else "-20240307-v1:0"
-        claude3=True
-    # Retrieve past chat history   
+    # use CLAUDE 3 Model
+    claude3=True
+    model='anthropic.claude-3-sonnet-20240229-v1:0' 
     current_chat,chat_hist=get_chat_history_db(params, CHAT_HISTORY_LENGTH,claude3)
 
     ## prompt template for when a user uploads a doc
@@ -870,9 +867,9 @@ def get_chat_historie_for_streamlit(params):
 
 def get_key_from_value(dictionary, value):
     return next((key for key, val in dictionary.items() if val == value), None)
-    
+
 def chat_bedrock_(params):
-    st.title('Chatty AI Assitant 🙂')
+    st.title('節能會議小助手💡')
     params['chat_histories']=[]
     if params["session_id"].strip():
         st.session_state.messages, params['chat_histories']=get_chat_historie_for_streamlit(params)
@@ -887,7 +884,8 @@ def chat_bedrock_(params):
                 if message["attachment"]:
                     with st.expander(label="**attachments**"):
                         st.markdown( message["attachment"])
-    if prompt := st.chat_input("Whats up?"):        
+        
+    if prompt := st.chat_input("問我任何問題(๑•ૅω•´๑)"): 
         st.session_state.messages.append({"role": "user", "content": prompt})        
         with st.chat_message("user"):             
             st.markdown(prompt.replace("$", "\$"),unsafe_allow_html=True )
@@ -901,24 +899,18 @@ def chat_bedrock_(params):
         st.rerun()
         
 def app_sidebar():
-    with st.sidebar:   
-        st.metric(label="Bedrock Session Cost", value=f"${round(st.session_state['cost'],2)}") 
+    with st.sidebar:
         st.write("-----")
-        button=st.button("New Chat", type ="primary")
-        models=[ 'claude-3-sonnet','claude-3-haiku','claude-instant-v1','claude-v2:1', 'claude-v2']
-        model=st.selectbox('**Model**', models)
+        model='claude-3-sonnet'
         params={"model":model} 
         user_sess_id=get_session_ids_by_user(DYNAMODB_TABLE, st.session_state['userid'])
         float_keys = {float(key): value for key, value in user_sess_id.items()}
         sorted_messages = sorted(float_keys.items(), reverse=True)      
-        sorted_messages.insert(0, (float(st.session_state['user_sess']),"New Chat"))        
-        if button:
-            st.session_state['user_sess'] = str(time.time())
-            sorted_messages.insert(0, (float(st.session_state['user_sess']),"New Chat"))      
+        sorted_messages.insert(0, (float(st.session_state['user_sess']),"New Chat"))          
         st.session_state['chat_session_list'] = dict(sorted_messages)
-        chat_items=st.selectbox("**Chat Sessions**",st.session_state['chat_session_list'].values(),key="chat_sessions")
+        chat_items=st.selectbox("**對話階段：**",st.session_state['chat_session_list'].values(),key="chat_sessions")
         session_id=get_key_from_value(st.session_state['chat_session_list'], chat_items)   
-        file = st.file_uploader('Upload a document', accept_multiple_files=True, help="pdf,csv,txt,png,jpg,xlsx,json,py doc format supported") 
+        file = st.file_uploader('上傳檔案：', accept_multiple_files=True, help="pdf,csv,txt,png,jpg,xlsx,json,py doc format supported") 
         if file and LOAD_DOC_IN_ALL_CHAT_CONVO:
             st.warning('You have set **load-doc-in-chat-history** to true. For better performance, remove upload files (by clicking **X**) **AFTER** first query **RESPONSE** on uploaded files. See the README for more info', icon="⚠️")
         params={"model":model, "session_id":str(session_id), "chat_item":chat_items, "upload_doc":file }    
